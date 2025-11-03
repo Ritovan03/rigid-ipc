@@ -7,7 +7,7 @@
 
 <b>Robust, intersection-free, simulations of rigid bodies.</b>
 
-This is the open-source reference implementation of the SIGGRAPH 2021 paper [Intersection-free Rigid Body Dynamics](https://ipc-sim.github.io/rigid-ipc/).
+This is the implementation of the SIGGRAPH 2021 paper [Intersection-free Rigid Body Dynamics](https://ipc-sim.github.io/rigid-ipc/).
 
 ## Files
 
@@ -15,11 +15,6 @@ This is the open-source reference implementation of the SIGGRAPH 2021 paper [Int
 * `cmake/` and `CMakeLists.txt`: CMake files
 * `fixtures/`: input scripts to rerun all examples in our paper
 * `meshes/`: input meshes used by the fixtures
-* `tests/`: unit-tests
-* `tools/`: Python and Bash scripts for generating and processing results
-* `comparisons/`: files used in comparisons with other rigid body simulators
-* `python/`: Python binding files
-* `notebooks/`: Jupyter notebooks
 
 ## Build
 
@@ -28,7 +23,7 @@ To build the project, use the following commands from the root directory of the 
 ```bash
 mkdir build
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake -DCMAKE_BUILD_TYPE=Release -DRIGID_IPC_WITH_UNIT_TESTS=OFF -DRIGID_IPC_WITH_TOOLS=OFF ..
 make -j4
 ```
 
@@ -49,22 +44,3 @@ The following libraries are used in this project:
 * [finite-diff](https://github.com/zfergus/finite-diff): finite difference comparisons
     * Only used by the unit tests and when `RIGID_IPC_WITH_DERIVATIVE_CHECK=ON`
 
-#### Optional
-
-* [Catch2](https://github.com/catchorg/Catch2.git): unit tests
-
-## Scenes
-
-We take as input a single JSON file that specifies the mesh and initial
-conditions for each body. The `fixtures` directory contains example scenes.
-
-## Python Bindings
-
-We expose some functionality of Rigid IPC through Python. This is still in
-development and lacks the ability to script many features available in the full
-simulator.
-
-To build the Python bindings use the `setup.py` script:
-```sh
-python setup.py install
-```
