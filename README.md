@@ -1,7 +1,5 @@
 # Rigid IPC
 
-<img src="docs/imgs/teaser.png">
-
 [![Build](https://github.com/ipc-sim/rigid-ipc/actions/workflows/continuous.yml/badge.svg)](https://github.com/ipc-sim/rigid-ipc/actions/workflows/continuous.yml)
 [![License](https://img.shields.io/github/license/ipc-sim/rigid-ipc.svg?color=blue)](https://github.com/ipc-sim/rigid-ipc/blob/main/LICENSE)
 
@@ -25,6 +23,14 @@ mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Release -DRIGID_IPC_WITH_UNIT_TESTS=OFF -DRIGID_IPC_WITH_TOOLS=OFF ..
 make -j4
+```
+
+## Execution
+
+To run the build, use the following commands from the root diretory of the project: 
+
+```bash
+./build/rigid_ipc_sim ./fixtures/<path_of_the_json>
 ```
 
 ### Dependencies
