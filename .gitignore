@@ -307,3 +307,9 @@ fixtures/**/*.gif
 fixtures/**/*.obj
 fixtures/3D/kinematic-dress
 src/tools/ccd-queries.zip
+
+
+# Temporary files
+
+.polyscope.ini
+imgui.ini
