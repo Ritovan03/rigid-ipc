@@ -21,7 +21,7 @@ To build the project, use the following commands from the root directory of the 
 ```bash
 mkdir build
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DRIGID_IPC_WITH_UNIT_TESTS=OFF -DRIGID_IPC_WITH_TOOLS=OFF ..
+cmake -DCMAKE_BUILD_TYPE=Debug       -DCMAKE_CXX_FLAGS="-Wno-error -Wno-error=array-bounds -Wno-array-bounds"       -DRIGID_IPC_WITH_UNIT_TESTS=OFF       -DRIGID_IPC_WITH_TOOLS=OFF       ..
 make -j4
 ```
 
@@ -31,6 +31,7 @@ To run the build, use the following commands from the root diretory of the proje
 
 ```bash
 ./build/rigid_ipc_sim ./fixtures/<path_of_the_json>
+//eg: ./rigid_ipc_sim ../fixtures/3D/fracture/cube.json
 ```
 
 ### Dependencies
