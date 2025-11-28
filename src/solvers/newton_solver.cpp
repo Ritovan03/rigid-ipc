@@ -9,6 +9,10 @@
 #include <logger.hpp>
 #include <profiler.hpp>
 
+#ifdef INTEL_MKL
+#include <Eigen/PardisoSupport>
+#endif
+
 // #define USE_GRADIENT_DESCENT
 
 namespace ipc::rigid {
@@ -498,6 +502,33 @@ bool NewtonSolver::compute_direction(
     // Return true if the solve was successful.
     bool solve_success = false;
 
+#ifdef INTEL_MKL
+    // MKL Parallel Solve using Pardiso
+    Eigen::PardisoLDLT<Eigen::SparseMatrix<double>> linear_solver;
+    linear_solver.analyzePattern(hessian);
+    linear_solver.factorize(hessian);
+    
+    if (linear_solver.info() == Eigen::Success) {
+        Eigen::VectorXd rhs = -gradient;
+        direction = linear_solver.solve(rhs);
+        if (linear_solver.info() == Eigen::Success) {
+            solve_success = true;
+        } else {
+            spdlog::warn(
+                "solver={} iter={:d} failure=\"MKL Pardiso solve for newton "
+                "direction\" failsafe=\"gradient descent\"",
+                name(), iteration_number);
+            solve_success = false;
+        }
+    } else {
+        spdlog::warn(
+            "solver={} iter={:d} failure=\"MKL Pardiso decomposition of the "
+            "hessian\" failsafe=\"gradient descent\"",
+            name(), iteration_number);
+        solve_success = false;
+    }
+#else
+    // Default Eigen sparse solver
     // if (hessian.rows() <= 1200) { // <= 200 bodies
     //     Eigen::MatrixXd dense_hessian(hessian);
     //     direction = dense_hessian.ldlt().solve(-gradient);
@@ -527,6 +558,7 @@ bool NewtonSolver::compute_direction(
             name(), iteration_number);
     }
     // }
+#endif
 
     PROFILE_END();
 

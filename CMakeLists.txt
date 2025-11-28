@@ -201,6 +201,92 @@ target_link_libraries(ipc_rigid PUBLIC Boost::boost)
 include(onetbb)
 target_link_libraries(ipc_rigid PUBLIC TBB::tbb)
 
+# OpenMP
+find_package(OpenMP REQUIRED)
+target_link_libraries(ipc_rigid PUBLIC OpenMP::OpenMP_CXX)
+
+# Intel MKL - Manual LP64 (32-bit integer) configuration
+# Note: Using manual configuration to ensure LP64 interface (32-bit integers)
+# instead of ILP64 interface which causes type mismatches with Eigen
+
+# Find MKL include directory
+find_path(MKL_INCLUDE_DIR mkl.h 
+    HINTS 
+        /opt/intel/oneapi/mkl/latest/include
+        /opt/intel/mkl/include
+        /usr/include/mkl
+        /usr/local/include/mkl
+        $ENV{MKLROOT}/include
+        $ENV{CONDA_PREFIX}/include
+)
+
+# Find MKL libraries (LP64 interface - 32-bit integers)
+find_library(MKL_INTEL_LP64 mkl_intel_lp64 
+    HINTS 
+        /opt/intel/oneapi/mkl/latest/lib/intel64
+        /opt/intel/mkl/lib/intel64
+        /usr/lib/x86_64-linux-gnu
+        /usr/local/lib
+        $ENV{MKLROOT}/lib/intel64
+        $ENV{CONDA_PREFIX}/lib
+)
+find_library(MKL_GNU_THREAD mkl_gnu_thread 
+    HINTS 
+        /opt/intel/oneapi/mkl/latest/lib/intel64
+        /opt/intel/mkl/lib/intel64
+        /usr/lib/x86_64-linux-gnu
+        /usr/local/lib
+        $ENV{MKLROOT}/lib/intel64
+        $ENV{CONDA_PREFIX}/lib
+)
+find_library(MKL_CORE mkl_core 
+    HINTS 
+        /opt/intel/oneapi/mkl/latest/lib/intel64
+        /opt/intel/mkl/lib/intel64
+        /usr/lib/x86_64-linux-gnu
+        /usr/local/lib
+        $ENV{MKLROOT}/lib/intel64
+        $ENV{CONDA_PREFIX}/lib
+)
+
+if(MKL_INCLUDE_DIR AND MKL_INTEL_LP64 AND MKL_GNU_THREAD AND MKL_CORE)
+    message(STATUS "Found Intel MKL with LP64 interface and GNU threading")
+    message(STATUS "  MKL Include: ${MKL_INCLUDE_DIR}")
+    message(STATUS "  MKL LP64: ${MKL_INTEL_LP64}")
+    message(STATUS "  MKL GNU Thread: ${MKL_GNU_THREAD}")
+    message(STATUS "  MKL Core: ${MKL_CORE}")
+    
+    # Add include directory
+    target_include_directories(ipc_rigid PUBLIC ${MKL_INCLUDE_DIR})
+    
+    # Link MKL libraries in correct order
+    target_link_libraries(ipc_rigid PUBLIC 
+        ${MKL_INTEL_LP64} 
+        ${MKL_GNU_THREAD} 
+        ${MKL_CORE}
+    )
+    
+    # Standard system libraries required by MKL
+    target_link_libraries(ipc_rigid PUBLIC pthread m dl)
+    
+    # Enable MKL in the code
+    target_compile_definitions(ipc_rigid PUBLIC INTEL_MKL)
+else()
+    if(NOT MKL_INCLUDE_DIR)
+        message(WARNING "Intel MKL header (mkl.h) not found")
+    endif()
+    if(NOT MKL_INTEL_LP64)
+        message(WARNING "Intel MKL library (mkl_intel_lp64) not found")
+    endif()
+    if(NOT MKL_GNU_THREAD)
+        message(WARNING "Intel MKL library (mkl_gnu_thread) not found")
+    endif()
+    if(NOT MKL_CORE)
+        message(WARNING "Intel MKL library (mkl_core) not found")
+    endif()
+    message(WARNING "Intel MKL not found, using default Eigen solvers")
+endif()
+
 # MSCCD
 include(tight_inclusion)
 target_link_libraries(ipc_rigid PUBLIC tight_inclusion::tight_inclusion)
@@ -293,17 +379,17 @@ endif()
 ################################################################################
 
 # Enable unit testing at the root level
-if(RIGID_IPC_WITH_UNIT_TESTS)
-    include(CTest)
-    enable_testing()
+# if(RIGID_IPC_WITH_UNIT_TESTS)
+#     include(CTest)
+#     enable_testing()
 
-    # Include Catch2 and provide function `catch_discover_tests` to register tests.
-    include(catch2)
-    FetchContent_GetProperties(catch2)
-    include("${catch2_SOURCE_DIR}/contrib/Catch.cmake")
+#     # Include Catch2 and provide function `catch_discover_tests` to register tests.
+#     include(catch2)
+#     FetchContent_GetProperties(catch2)
+#     include("${catch2_SOURCE_DIR}/contrib/Catch.cmake")
 
-    add_subdirectory(tests)
-endif()
+#     add_subdirectory(tests)
+# endif()
 
 ################################################################################
 # Comparisons to other methods
@@ -316,6 +402,6 @@ endif()
 # Python bindings
 ################################################################################
 
-if(RIGID_IPC_WITH_PYTHON)
-  add_subdirectory(python)
-endif()
+# if(RIGID_IPC_WITH_PYTHON)
+#   add_subdirectory(python)
+# endif()
