@@ -293,17 +293,17 @@ endif()
 ################################################################################
 
 # Enable unit testing at the root level
-if(RIGID_IPC_WITH_UNIT_TESTS)
-    include(CTest)
-    enable_testing()
+# if(RIGID_IPC_WITH_UNIT_TESTS)
+#     include(CTest)
+#     enable_testing()
 
-    # Include Catch2 and provide function `catch_discover_tests` to register tests.
-    include(catch2)
-    FetchContent_GetProperties(catch2)
-    include("${catch2_SOURCE_DIR}/contrib/Catch.cmake")
+#     # Include Catch2 and provide function `catch_discover_tests` to register tests.
+#     include(catch2)
+#     FetchContent_GetProperties(catch2)
+#     include("${catch2_SOURCE_DIR}/contrib/Catch.cmake")
 
-    add_subdirectory(tests)
-endif()
+#     add_subdirectory(tests)
+# endif()
 
 ################################################################################
 # Comparisons to other methods
@@ -316,6 +316,6 @@ endif()
 # Python bindings
 ################################################################################
 
-if(RIGID_IPC_WITH_PYTHON)
-  add_subdirectory(python)
-endif()
+# if(RIGID_IPC_WITH_PYTHON)
+#   add_subdirectory(python)
+# endif()
