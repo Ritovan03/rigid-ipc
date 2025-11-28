@@ -1,7 +1,8 @@
 #include "distance_barrier_rb_problem.hpp"
 
-#include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
+#include <omp.h>
+#include <vector>
+#include <string>
 
 #include <ipc/distance/edge_edge.hpp>
 #include <ipc/distance/edge_edge_mollifier.hpp>
@@ -723,7 +724,7 @@ double DistanceBarrierRBProblem::compute_energy_term(
     if (compute_grad) {
         grad.setZero(x.size());
     }
-    tbb::concurrent_vector<Eigen::Triplet<double>> hess_triplets;
+    std::vector<Eigen::Triplet<double>> hess_triplets;
     if (compute_hess) {
         // Hessian is a block diagonal with (ndof x ndof) blocks
         hess_triplets.reserve(num_bodies() * ndof * ndof);
@@ -732,73 +733,85 @@ double DistanceBarrierRBProblem::compute_energy_term(
     const std::vector<PoseD> poses = this->dofs_to_poses(x);
     assert(poses.size() == num_bodies());
 
-    // tbb::parallel_for(size_t(0), poses.size(), [&](size_t i) {
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), poses.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Activate autodiff with the correct number of variables
-            Diff::activate(ndof);
+#pragma omp parallel
+    {
+        // Thread-local storage for hessian triplets
+        std::vector<Eigen::Triplet<double>> local_hess_triplets;
+        if (compute_hess) {
+            local_hess_triplets.reserve(ndof * ndof);
+        }
+        
+        // Activate autodiff with the correct number of variables
+        Diff::activate(ndof);
 
-            for (long i = range.begin(); i != range.end(); ++i) {
-                const PoseD& pose = poses[i];
-                const RigidBody& body = m_assembler[i];
+#pragma omp for
+        for (long i = 0; i < static_cast<long>(poses.size()); ++i) {
+            const PoseD& pose = poses[i];
+            const RigidBody& body = m_assembler[i];
 
-                // Do not compute the body energy for static and kinematic
-                // bodies
-                if (body.type != RigidBodyType::DYNAMIC) {
-                    continue;
-                }
-
-                VectorMax6d gradi;
-
-                if (compute_hess) {
-                    // Initialize autodiff variables
-                    Pose<Diff::DDouble2> pose_diff(Diff::d2vars(0, pose.dof()));
-
-                    Diff::DDouble2 dExi = compute_body_energy<Diff::DDouble2>(
-                        body, pose_diff,
-                        grad_barrier_t0.segment(i * ndof, ndof));
-
-                    energies[i] = dExi.getValue();
-                    gradi = dExi.getGradient();
-                    MatrixMax6d hessi = dExi.getHessian();
-
-                    // Project dense block to make assembled matrix PSD
-                    hessi.topLeftCorner(pos_ndof, pos_ndof) = project_to_psd(
-                        MatrixMax3d(hessi.topLeftCorner(pos_ndof, pos_ndof)));
-                    // NOTE: This is handled with Tikhonov regularization
-                    // instead hessi.bottomRightCorner(rot_ndof, rot_ndof) =
-                    //     Eigen::project_to_pd(
-                    //         hessi.bottomRightCorner(rot_ndof, rot_ndof));
-
-                    // Add the local hessian as triplets in the global
-                    // hessian
-                    for (int r = 0; r < hessi.rows(); r++) {
-                        for (int c = 0; c < hessi.cols(); c++) {
-                            hess_triplets.emplace_back(
-                                i * ndof + r, i * ndof + c, hessi(r, c));
-                        }
-                    }
-                } else if (compute_grad) {
-                    // Initialize autodiff variables
-                    Pose<Diff::DDouble1> pose_diff(Diff::d1vars(0, pose.dof()));
-
-                    Diff::DDouble1 dExi = compute_body_energy<Diff::DDouble1>(
-                        body, pose_diff,
-                        grad_barrier_t0.segment(i * ndof, ndof));
-
-                    energies[i] = dExi.getValue();
-                    gradi = dExi.getGradient();
-                } else {
-                    energies[i] = compute_body_energy<double>(
-                        body, pose, grad_barrier_t0.segment(i * ndof, ndof));
-                }
-
-                if (compute_grad) {
-                    grad.segment(i * ndof, ndof) = gradi;
-                }
+            // Do not compute the body energy for static and kinematic
+            // bodies
+            if (body.type != RigidBodyType::DYNAMIC) {
+                continue;
             }
-        });
+
+            VectorMax6d gradi;
+
+            if (compute_hess) {
+                // Initialize autodiff variables
+                Pose<Diff::DDouble2> pose_diff(Diff::d2vars(0, pose.dof()));
+
+                Diff::DDouble2 dExi = compute_body_energy<Diff::DDouble2>(
+                    body, pose_diff,
+                    grad_barrier_t0.segment(i * ndof, ndof));
+
+                energies[i] = dExi.getValue();
+                gradi = dExi.getGradient();
+                MatrixMax6d hessi = dExi.getHessian();
+
+                // Project dense block to make assembled matrix PSD
+                hessi.topLeftCorner(pos_ndof, pos_ndof) = project_to_psd(
+                    MatrixMax3d(hessi.topLeftCorner(pos_ndof, pos_ndof)));
+                // NOTE: This is handled with Tikhonov regularization
+                // instead hessi.bottomRightCorner(rot_ndof, rot_ndof) =
+                //     Eigen::project_to_pd(
+                //         hessi.bottomRightCorner(rot_ndof, rot_ndof));
+
+                // Add the local hessian as triplets to thread-local storage
+                for (int r = 0; r < hessi.rows(); r++) {
+                    for (int c = 0; c < hessi.cols(); c++) {
+                        local_hess_triplets.emplace_back(
+                            i * ndof + r, i * ndof + c, hessi(r, c));
+                    }
+                }
+            } else if (compute_grad) {
+                // Initialize autodiff variables
+                Pose<Diff::DDouble1> pose_diff(Diff::d1vars(0, pose.dof()));
+
+                Diff::DDouble1 dExi = compute_body_energy<Diff::DDouble1>(
+                    body, pose_diff,
+                    grad_barrier_t0.segment(i * ndof, ndof));
+
+                energies[i] = dExi.getValue();
+                gradi = dExi.getGradient();
+            } else {
+                energies[i] = compute_body_energy<double>(
+                    body, pose, grad_barrier_t0.segment(i * ndof, ndof));
+            }
+
+            if (compute_grad) {
+                grad.segment(i * ndof, ndof) = gradi;
+            }
+        }
+        
+        // Merge local triplets into global storage
+        if (compute_hess) {
+#pragma omp critical
+            {
+                hess_triplets.insert(hess_triplets.end(), local_hess_triplets.begin(), local_hess_triplets.end());
+            }
+        }
+    }
 
     if (compute_hess) {
         NAMED_PROFILE_POINT(
@@ -1254,11 +1267,10 @@ struct PotentialStorage {
     Eigen::VectorXd gradient;
     std::vector<Eigen::Triplet<double>> hessian_triplets;
 };
-typedef tbb::enumerable_thread_specific<PotentialStorage>
-    ThreadSpecificPotentials;
+
 
 double merge_derivative_storage(
-    const ThreadSpecificPotentials& potentials,
+    const std::vector<PotentialStorage>& potentials,
     size_t nvars,
     Eigen::VectorXd& grad,
     Eigen::SparseMatrix<double>& hess,
@@ -1333,18 +1345,17 @@ double DistanceBarrierRBProblem::compute_barrier_term(
 
     double dhat = barrier_activation_distance();
 
-    ThreadSpecificPotentials thread_storage(x.size());
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), constraints.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Get references to the local derivative storage
-            auto& local_storage = thread_storage.local();
-            auto& potential = local_storage.potential;
-            auto& local_grad = local_storage.gradient;
-            auto& hess_triplets = local_storage.hessian_triplets;
+    std::vector<PotentialStorage> thread_storage(omp_get_max_threads(), PotentialStorage(x.size()));
+    
+#pragma omp parallel for
+    for (long ci = 0; ci < static_cast<long>(constraints.size()); ++ci) {
+        // Get references to the local derivative storage
+        auto& local_storage = thread_storage[omp_get_thread_num()];
+        auto& potential = local_storage.potential;
+        auto& local_grad = local_storage.gradient;
+        auto& hess_triplets = local_storage.hessian_triplets;
 
-            for (size_t ci = range.begin(); ci != range.end(); ++ci) {
-                const auto& constraint = constraints[ci];
+        const auto& constraint = constraints[ci];
 
                 // PROFILE_START(COMPUTE_BARRIER_VAL);
                 potential +=
@@ -1374,8 +1385,7 @@ double DistanceBarrierRBProblem::compute_barrier_term(
                     vertex_local_body_ids(constraints, ci),
                     body_ids(m_assembler, constraints, ci), dim(), local_grad,
                     hess_triplets, compute_grad, compute_hess);
-            }
-        });
+    }
 
     double potential = merge_derivative_storage(
         thread_storage, x.size(), grad, hess, compute_grad, compute_hess);
@@ -1497,18 +1507,17 @@ double DistanceBarrierRBProblem::compute_friction_term(
     Eigen::MatrixXd U = V1 - m_assembler.world_vertices(poses_t0);
     PROFILE_END(DISPLACEMENT);
 
-    ThreadSpecificPotentials thread_storage(x.size());
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), friction_constraints.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Get references to the local derivative storage
-            auto& local_storage = thread_storage.local();
-            auto& potential = local_storage.potential;
-            auto& local_grad = local_storage.gradient;
-            auto& hess_triplets = local_storage.hessian_triplets;
+    std::vector<PotentialStorage> thread_storage(omp_get_max_threads(), PotentialStorage(x.size()));
+    
+#pragma omp parallel for
+    for (long ci = 0; ci < static_cast<long>(friction_constraints.size()); ++ci) {
+        // Get references to the local derivative storage
+        auto& local_storage = thread_storage[omp_get_thread_num()];
+        auto& potential = local_storage.potential;
+        auto& local_grad = local_storage.gradient;
+        auto& hess_triplets = local_storage.hessian_triplets;
 
-            for (size_t ci = range.begin(); ci != range.end(); ++ci) {
-                size_t local_ci = ci;
+        size_t local_ci = ci;
 
                 if (local_ci < friction_constraints.vv_constraints.size()) {
                     potential += compute_friction_potential<
@@ -1547,8 +1556,7 @@ double DistanceBarrierRBProblem::compute_friction_term(
                         U, jac_V, hess_V,
                         friction_constraints.fv_constraints[local_ci],
                         local_grad, hess_triplets, compute_grad, compute_hess);
-            }
-        });
+    }
 
     double potential = merge_derivative_storage(
         thread_storage, x.size(), grad, hess, compute_grad, compute_hess);
