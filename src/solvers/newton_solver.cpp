@@ -8,6 +8,7 @@
 #include <constants.hpp>
 #include <logger.hpp>
 #include <profiler.hpp>
+#include <solvers/cuda_linear_solver.hpp>
 
 // #define USE_GRADIENT_DESCENT
 
@@ -498,35 +499,74 @@ bool NewtonSolver::compute_direction(
     // Return true if the solve was successful.
     bool solve_success = false;
 
-    // if (hessian.rows() <= 1200) { // <= 200 bodies
-    //     Eigen::MatrixXd dense_hessian(hessian);
-    //     direction = dense_hessian.ldlt().solve(-gradient);
-    //     solve_success = true;
-    // } else {
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> linear_solver;
-    linear_solver.analyzePattern(hessian);
-    linear_solver.factorize(hessian);
-
-    if (linear_solver.info() == Eigen::Success) {
-        // TODO: Do we have a better initial guess for iterative
-        // solvers?
+    // Try CUDA solver first
+    // Since Eigen uses CSC format and the Hessian is symmetric (H = H^T),
+    // the CSC arrays of H are valid CSR arrays for H^T = H
+    if (hessian.rows() > 0 && hessian.nonZeros() > 0) {
         direction = Eigen::VectorXd::Zero(gradient.size());
-        direction = linear_solver.solve(-gradient);
-        if (linear_solver.info() == Eigen::Success) {
+        
+        // Extract matrix data in CSR format (using Eigen's CSC data as CSR for symmetric matrix)
+        const int* row_ptr = hessian.outerIndexPtr();
+        const int* col_ind = hessian.innerIndexPtr();
+        const double* values = hessian.valuePtr();
+        
+        bool cuda_success = solve_cuda_sparse(
+            hessian.rows(),                 // n
+            hessian.nonZeros(),             // nnz
+            values,                         // values
+            row_ptr,                        // row_ptr (CSC outer indices)
+            col_ind,                        // col_ind (CSC inner indices)
+            gradient.data(),                // b (RHS: gradient)
+            direction.data()                // x (solution)
+        );
+        
+        if (cuda_success) {
+            // Negate the result to get -H^(-1) * gradient
+            direction = -direction;
             solve_success = true;
+            spdlog::info(
+                "solver={} iter={:d} linear_solve=\"CUDA successful\"",
+                name(), iteration_number);
         } else {
             spdlog::warn(
-                "solver={} iter={:d} failure=\"sparse solve for newton "
-                "direction\" failsafe=\"gradient descent\"",
+                "solver={} iter={:d} failure=\"CUDA linear solve failed\" "
+                "failsafe=\"CPU sparse solver\"",
                 name(), iteration_number);
         }
-    } else {
-        spdlog::warn(
-            "solver={} iter={:d} failure=\"sparse decomposition of the "
-            "hessian\" failsafe=\"gradient descent\"",
-            name(), iteration_number);
     }
-    // }
+
+    // Fallback to CPU solver if CUDA failed or matrix is empty
+    if (!solve_success) {
+        // if (hessian.rows() <= 1200) { // <= 200 bodies
+        //     Eigen::MatrixXd dense_hessian(hessian);
+        //     direction = dense_hessian.ldlt().solve(-gradient);
+        //     solve_success = true;
+        // } else {
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> linear_solver;
+        linear_solver.analyzePattern(hessian);
+        linear_solver.factorize(hessian);
+
+        if (linear_solver.info() == Eigen::Success) {
+            // TODO: Do we have a better initial guess for iterative
+            // solvers?
+            direction = Eigen::VectorXd::Zero(gradient.size());
+            direction = linear_solver.solve(-gradient);
+            if (linear_solver.info() == Eigen::Success) {
+                solve_success = true;
+            } else {
+                spdlog::warn(
+                    "solver={} iter={:d} failure=\"sparse solve for newton "
+                    "direction\" failsafe=\"gradient descent\"",
+                    name(), iteration_number);
+            }
+        } else {
+            spdlog::warn(
+                "solver={} iter={:d} failure=\"sparse decomposition of the "
+                "hessian\" failsafe=\"gradient descent\"",
+                name(), iteration_number);
+        }
+        // }
+    }
 
     PROFILE_END();
 

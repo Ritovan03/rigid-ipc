@@ -12,3 +12,4 @@ FetchContent_Declare(
     GIT_SHALLOW FALSE
 )
 FetchContent_MakeAvailable(ipc_toolkit)
+target_compile_options(ipc_toolkit PRIVATE -w)

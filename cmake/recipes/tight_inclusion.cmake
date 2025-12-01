@@ -15,3 +15,4 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tight_inclusion)
 
 add_library(tight_inclusion::tight_inclusion ALIAS tight_inclusion)
+target_compile_options(tight_inclusion PRIVATE -w)

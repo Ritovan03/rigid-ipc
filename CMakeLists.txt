@@ -30,7 +30,7 @@ endif()
 
 project(RigidIPC
         DESCRIPTION "Robust, intersection-free, simulations of rigid bodies."
-        LANGUAGES CXX)
+        LANGUAGES CXX CUDA)
 
 option(RIGID_IPC_WITH_UNIT_TESTS             "Build unit-tests"      ${RIGID_IPC_TOPLEVEL_PROJECT})
 option(RIGID_IPC_WITH_OPENGL                 "Build GUI"             ${RIGID_IPC_TOPLEVEL_PROJECT})
@@ -47,6 +47,9 @@ if(RIGID_IPC_TOPLEVEL_PROJECT)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_EXTENSIONS OFF)
 endif()
+
+# Find CUDA toolkit for GPU acceleration
+find_package(CUDAToolkit REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/rigid_ipc/")
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/recipes/")
@@ -113,6 +116,7 @@ add_library(ipc_rigid
   src/problems/barrier_problem.cpp
 
   src/solvers/newton_solver.cpp
+  src/solvers/cuda_linear_solver.cu
   src/solvers/ipc_solver.cpp
   src/solvers/homotopy_solver.cpp
   src/solvers/solver_factory.cpp
@@ -220,6 +224,13 @@ target_link_libraries(ipc_rigid PUBLIC simple_bvh::simple_bvh)
 # tinygltf
 include(tinygltf)
 target_link_libraries(ipc_rigid PUBLIC tinygltf::tinygltf)
+
+# CUDA libraries for GPU acceleration
+target_link_libraries(ipc_rigid PUBLIC 
+    CUDA::cudart 
+    CUDA::cusolver 
+    CUDA::cusparse
+)
 
 ################################################################################
 # Compiler options

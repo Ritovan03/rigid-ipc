@@ -58,7 +58,7 @@ VectorMax3d read_angular_field(const nlohmann::json& field, int dim)
 bool read_rb_scene(const nlohmann::json& scene, std::vector<RigidBody>& rbs)
 {
     using namespace nlohmann;
-    int dim = -1, ndof, angular_dim;
+    int dim = -1, ndof = 0, angular_dim = 0;
 
     std::unordered_map<std::string, int> rb_name_to_count;
 
