@@ -144,10 +144,21 @@ void detect_collisions_from_candidates(
     };
 
     impacts.clear();
-    tbb::parallel_invoke(
-        [&] { tbb::parallel_for_each(candidates.ev_candidates, ev_impact); },
-        [&] { tbb::parallel_for_each(candidates.ee_candidates, ee_impact); },
-        [&] { tbb::parallel_for_each(candidates.fv_candidates, fv_impact); });
+    
+    // Process edge-vertex candidates sequentially
+    for (const auto& ev_candidate : candidates.ev_candidates) {
+        ev_impact(ev_candidate);
+    }
+    
+    // Process edge-edge candidates sequentially
+    for (const auto& ee_candidate : candidates.ee_candidates) {
+        ee_impact(ee_candidate);
+    }
+    
+    // Process face-vertex candidates sequentially
+    for (const auto& fv_candidate : candidates.fv_candidates) {
+        fv_impact(fv_candidate);
+    }
 
     PROFILE_END();
 }
