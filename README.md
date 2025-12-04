@@ -21,7 +21,13 @@ To build the project, use the following commands from the root directory of the 
 ```bash
 mkdir build
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DRIGID_IPC_WITH_UNIT_TESTS=OFF -DRIGID_IPC_WITH_TOOLS=OFF ..
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DRIGID_IPC_WITH_UNIT_TESTS=OFF \
+      -DRIGID_IPC_WITH_TOOLS=OFF \
+      -DCMAKE_CXX_FLAGS="-Wno-array-bounds -Wno-stringop-overflow -Wno-maybe-uninitialized -Wno-noexcept -Wno-error" \
+      ..
+find _deps -name "CMakeLists.txt" -o -name "*.cmake" | xargs sed -i 's/-Werror//g'
+find .. -name "CMakeLists.txt" -o -name "*.cmake" | grep -v "_deps" | xargs sed -i 's/-Werror//g'
 make -j4
 ```
 

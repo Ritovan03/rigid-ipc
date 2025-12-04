@@ -186,3 +186,6 @@ Disable TBB
 -   I can generate concrete diffs for the three target areas (`distance_barrier_rb_problem.cpp`, `newton_solver.cpp`, and `ccd/time_of_impact.cpp`) and a sample `CMakeLists.txt` patch to add OpenMP and optional MKL — tell me which one you'd like first.
 
 _Last updated: OpenMP porting plan._
+
+
+time ./rigid_ipc_sim ../fixtures/3D/fracture/wall.json

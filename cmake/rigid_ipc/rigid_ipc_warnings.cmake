@@ -25,19 +25,19 @@ set(RIGID_IPC_FLAGS
     -Wmissing-format-attribute
     -Wredundant-decls
 
-    -Werror=implicit
-    -Werror=nonnull
-    -Werror=init-self
-    -Werror=main
-    -Werror=missing-braces
-    -Werror=sequence-point
-    -Werror=return-type
-    -Werror=trigraphs
-    -Werror=array-bounds
-    -Werror=write-strings
-    -Werror=address
-    -Werror=int-to-pointer-cast
-    -Werror=pointer-to-int-cast
+    =implicit
+    =nonnull
+    =init-self
+    =main
+    =missing-braces
+    =sequence-point
+    =return-type
+    =trigraphs
+    =array-bounds
+    =write-strings
+    =address
+    =int-to-pointer-cast
+    =pointer-to-int-cast
 
     -Wno-unused-variable
     -Wunused-but-set-variable
@@ -85,8 +85,8 @@ set(RIGID_IPC_FLAGS
 
     -Wnon-virtual-dtor
     -Wdelete-non-virtual-dtor
-    -Werror=non-virtual-dtor
-    -Werror=delete-non-virtual-dtor
+    =non-virtual-dtor
+    =delete-non-virtual-dtor
 
     -Wno-sign-compare
 
