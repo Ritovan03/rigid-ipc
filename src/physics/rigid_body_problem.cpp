@@ -286,6 +286,7 @@ bool RigidBodyProblem::detect_collisions(
 }
 
 // Check if the geometry is intersecting
+
 bool RigidBodyProblem::detect_intersections(const PosesD& poses) const
 {
     if (num_bodies() <= 1) {
@@ -300,12 +301,14 @@ bool RigidBodyProblem::detect_intersections(const PosesD& poses) const
     const Eigen::MatrixXi& faces = this->faces();
 
     bool is_intersecting = false;
+
     if (dim() == 2) { // Need to check segment-segment intersections in 2D
         assert(vertices.cols() == 2);
 
         double inflation_radius = 1e-8; // Conservative broad phase
         std::vector<std::pair<int, int>> close_bodies =
             m_assembler.close_bodies(poses, poses, inflation_radius);
+        
         if (close_bodies.size() == 0) {
             PROFILE_END();
             return false;
@@ -323,15 +326,20 @@ bool RigidBodyProblem::detect_intersections(const PosesD& poses) const
         std::vector<EdgeEdgeCandidate> ee_candidates;
         hashgrid.getEdgeEdgePairs(edges, ee_candidates, can_vertices_collide);
 
-        for (const EdgeEdgeCandidate& ee_candidate : ee_candidates) {
+
+        #pragma omp parallel for shared(is_intersecting) schedule(dynamic)
+        for (size_t i = 0; i < ee_candidates.size(); ++i) {
+            if (is_intersecting) continue; // Early exit simulation
+
+            const auto& ee_candidate = ee_candidates[i];
             if (igl::predicates::segment_segment_intersect(
                     vertices.row(edges(ee_candidate.edge0_index, 0)).head<2>(),
                     vertices.row(edges(ee_candidate.edge0_index, 1)).head<2>(),
                     vertices.row(edges(ee_candidate.edge1_index, 0)).head<2>(),
-                    vertices.row(edges(ee_candidate.edge1_index, 1))
-                        .head<2>())) {
+                    vertices.row(edges(ee_candidate.edge1_index, 1)).head<2>())) {
+                
+                #pragma omp atomic write
                 is_intersecting = true;
-                break;
             }
         }
     } else { // Need to check segment-triangle intersections in 3D
@@ -341,15 +349,21 @@ bool RigidBodyProblem::detect_intersections(const PosesD& poses) const
         detect_intersection_candidates_rigid_bvh(
             m_assembler, poses, ef_candidates);
 
-        for (const EdgeFaceCandidate& ef_candidate : ef_candidates) {
+
+        #pragma omp parallel for shared(is_intersecting) schedule(dynamic)
+        for (size_t i = 0; i < ef_candidates.size(); ++i) {
+            if (is_intersecting) continue; // Early exit simulation
+
+            const auto& ef_candidate = ef_candidates[i];
             if (is_edge_intersecting_triangle(
                     vertices.row(edges(ef_candidate.edge_index, 0)),
                     vertices.row(edges(ef_candidate.edge_index, 1)),
                     vertices.row(faces(ef_candidate.face_index, 0)),
                     vertices.row(faces(ef_candidate.face_index, 1)),
                     vertices.row(faces(ef_candidate.face_index, 2)))) {
+                
+                #pragma omp atomic write
                 is_intersecting = true;
-                break;
             }
         }
     }

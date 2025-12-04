@@ -1,7 +1,7 @@
 #include "distance_barrier_constraint.hpp"
 
 #include <mutex>
-#include <tbb/parallel_for_each.h>
+#include <omp.h>
 
 #include <igl/slice_mask.h>
 #include <ipc/ipc.hpp>
@@ -181,69 +181,66 @@ double DistanceBarrierConstraint::compute_earliest_toi_narrow_phase(
     const size_t num_ee = candidates.ee_candidates.size();
     const size_t num_fv = candidates.fv_candidates.size();
 
-    // Do a single block range over all three candidate vectors
-    tbb::parallel_for(
-        tbb::blocked_range<int>(0, candidates.size()),
-        [&](tbb::blocked_range<int> r) {
-            for (int i = r.begin(); i < r.end(); i++) {
-                double toi = std::numeric_limits<double>::infinity();
-                bool are_colliding;
+    // Do a parallel loop over all three candidate vectors using OpenMP
+#pragma omp parallel for reduction(min:earliest_toi) schedule(dynamic)
+    for (int i = 0; i < static_cast<int>(candidates.size()); i++) {
+        double toi = std::numeric_limits<double>::infinity();
+        bool are_colliding;
 
-                if (i < num_ev) {
-                    // PROFILE_START(EV_NARROW_PHASE);
-                    are_colliding = edge_vertex_ccd(
-                        bodies, poses_t0, poses_t1, candidates.ev_candidates[i],
-                        toi, trajectory_type, earliest_toi,
-                        minimum_separation_distance);
-                    // PROFILE_END(EV_NARROW_PHASE);
-                } else if (i - num_ev < num_ee) {
-                    // PROFILE_START(EE_NARROW_PHASE);
-                    are_colliding = edge_edge_ccd(
-                        bodies, poses_t0, poses_t1,
-                        candidates.ee_candidates[i - num_ev], toi,
-                        trajectory_type, earliest_toi,
-                        minimum_separation_distance);
-                    // PROFILE_END(EE_NARROW_PHASE);
-                } else {
-                    assert(i - num_ev - num_ee < num_fv);
-                    // PROFILE_START(FV_NARROW_PHASE);
-                    are_colliding = face_vertex_ccd(
-                        bodies, poses_t0, poses_t1,
-                        candidates.fv_candidates[i - num_ev - num_ee], toi,
-                        trajectory_type, earliest_toi,
-                        minimum_separation_distance);
-                    // PROFILE_END(FV_NARROW_PHASE);
-                }
+        if (i < num_ev) {
+            // PROFILE_START(EV_NARROW_PHASE);
+            are_colliding = edge_vertex_ccd(
+                bodies, poses_t0, poses_t1, candidates.ev_candidates[i],
+                toi, trajectory_type, earliest_toi,
+                minimum_separation_distance);
+            // PROFILE_END(EV_NARROW_PHASE);
+        } else if (i - num_ev < num_ee) {
+            // PROFILE_START(EE_NARROW_PHASE);
+            are_colliding = edge_edge_ccd(
+                bodies, poses_t0, poses_t1,
+                candidates.ee_candidates[i - num_ev], toi,
+                trajectory_type, earliest_toi,
+                minimum_separation_distance);
+            // PROFILE_END(EE_NARROW_PHASE);
+        } else {
+            assert(i - num_ev - num_ee < num_fv);
+            // PROFILE_START(FV_NARROW_PHASE);
+            are_colliding = face_vertex_ccd(
+                bodies, poses_t0, poses_t1,
+                candidates.fv_candidates[i - num_ev - num_ee], toi,
+                trajectory_type, earliest_toi,
+                minimum_separation_distance);
+            // PROFILE_END(FV_NARROW_PHASE);
+        }
 
-                if (are_colliding && toi == 0) {
-                    if (i < num_ev) {
-                        spdlog::error("Edge-vertex CCD resulted in toi=0!");
-                        save_ccd_candidate(
-                            bodies, poses_t0, poses_t1,
-                            candidates.ev_candidates[i]);
-                    } else if (i - num_ev < num_ee) {
-                        spdlog::error("Edge-edge CCD resulted in toi=0!");
-                        save_ccd_candidate(
-                            bodies, poses_t0, poses_t1,
-                            candidates.ee_candidates[i - num_ev]);
-                    } else {
-                        assert(i - num_ev - num_ee < num_fv);
-                        spdlog::error("Face-vertex CCD resulted in toi=0!");
-                        save_ccd_candidate(
-                            bodies, poses_t0, poses_t1,
-                            candidates.fv_candidates[i - num_ev - num_ee]);
-                    }
-                }
-
-                if (are_colliding) {
-                    std::scoped_lock lock(earliest_toi_mutex);
-                    collision_count++;
-                    if (toi < earliest_toi) {
-                        earliest_toi = toi;
-                    }
-                }
+        if (are_colliding && toi == 0) {
+            if (i < num_ev) {
+                spdlog::error("Edge-vertex CCD resulted in toi=0!");
+                save_ccd_candidate(
+                    bodies, poses_t0, poses_t1,
+                    candidates.ev_candidates[i]);
+            } else if (i - num_ev < num_ee) {
+                spdlog::error("Edge-edge CCD resulted in toi=0!");
+                save_ccd_candidate(
+                    bodies, poses_t0, poses_t1,
+                    candidates.ee_candidates[i - num_ev]);
+            } else {
+                assert(i - num_ev - num_ee < num_fv);
+                spdlog::error("Face-vertex CCD resulted in toi=0!");
+                save_ccd_candidate(
+                    bodies, poses_t0, poses_t1,
+                    candidates.fv_candidates[i - num_ev - num_ee]);
             }
-        });
+        }
+
+        if (are_colliding) {
+            // Thread-safe collision count increment
+#pragma omp atomic
+            collision_count++;
+            
+            // Note: earliest_toi is handled by the reduction clause above
+        }
+    }
 
     double percent_correct = candidates.size() == 0
         ? 100

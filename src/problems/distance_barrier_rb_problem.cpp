@@ -286,6 +286,7 @@ double DistanceBarrierRBProblem::compute_linear_augment_lagrangian_progress(
 
     double a = 0, b = 0;
 
+    #pragma omp parallel for reduction(+:a, b)
     for (size_t i = 0; i < num_bodies(); i++) {
         if (m_assembler[i].type == RigidBodyType::KINEMATIC) {
             a += (x_pred.segment(ndof * i, pos_ndof)
@@ -311,6 +312,8 @@ double DistanceBarrierRBProblem::compute_angular_augment_lagrangian_progress(
     int pos_ndof = PoseD::dim_to_pos_ndof(dim());
 
     double a = 0, b = 0;
+
+    #pragma omp parallel for reduction(+:a, b)
     for (size_t i = 0; i < num_bodies(); i++) {
         if (m_assembler[i].type == RigidBodyType::KINEMATIC) {
             size_t ri = ndof * i + pos_ndof;
@@ -498,13 +501,15 @@ bool DistanceBarrierRBProblem::take_step(const Eigen::VectorXd& x)
     const double h = timestep();
 
     // update final pose
-    // -------------------------------------
     m_assembler.set_rb_poses(this->dofs_to_poses(x));
     PosesD poses_q1 = m_assembler.rb_poses_t1();
 
     // Update the velocities
     // This need to be done AFTER updating poses
-    for (RigidBody& rb : m_assembler.m_rbs) {
+    #pragma omp parallel for schedule(static)
+    for (size_t i = 0; i < m_assembler.m_rbs.size(); ++i) {
+        RigidBody& rb = m_assembler.m_rbs[i];
+        
         if (rb.type != RigidBodyType::DYNAMIC) {
             continue;
         }
@@ -532,9 +537,9 @@ bool DistanceBarrierRBProblem::take_step(const Eigen::VectorXd& x)
             VectorMax3d pos_tilde = rb.pose_prev.position
                 + h
                     * (rb.velocity_prev.position
-                       + h / 4.0
-                           * (gravity + rb.force.position / rb.mass
-                              + rb.acceleration.position));
+                        + h / 4.0
+                            * (gravity + rb.force.position / rb.mass
+                                + rb.acceleration.position));
             rb.acceleration.position =
                 4 * (rb.pose.position - pos_tilde) / (h * h) + gravity
                 + rb.force.position / rb.mass;
@@ -565,23 +570,13 @@ bool DistanceBarrierRBProblem::take_step(const Eigen::VectorXd& x)
             // R * Rᵗ = Rᵗ⁺¹ → R = Rᵗ⁺¹(Rᵗ)ᵀ
             Eigen::Matrix3d R = rb.pose.construct_rotation_matrix()
                 * rb.pose_prev.construct_rotation_matrix().transpose();
-            // TODO: Make sure we did not loose momentum do to π modulus
-            // ω = rotation_vector(R)
+            
             Eigen::AngleAxisd omega(R);
             rb.velocity.rotation =
                 omega.angle() / timestep() * rb.R0.transpose() * omega.axis();
 
             Eigen::Matrix3d Q = rb.pose.construct_rotation_matrix();
             Eigen::Matrix3d Q_prev = rb.pose_prev.construct_rotation_matrix();
-            // Q̇ = Q[ω]
-            // Q̇ᵗ = (Qᵗ - Qᵗ⁻¹) / h
-            // Eigen::Matrix3d omega_hat = Q.transpose() * Qdot;
-            // std::cout << omega_hat << std::endl << std::endl;
-            // rb.velocity.rotation.x() = omega_hat(2, 1);
-            // rb.velocity.rotation.y() = omega_hat(0, 2);
-            // rb.velocity.rotation.z() = omega_hat(1, 0);
-            // rb.velocity.rotation = omega.angle() / h
-            //      * rb.R0.transpose() * omega.axis();
 
             switch (body_energy_integration_method) {
             case IMPLICIT_EULER:
@@ -596,17 +591,10 @@ bool DistanceBarrierRBProblem::take_step(const Eigen::VectorXd& x)
             case STABILIZED_NEWMARK: {
                 auto Qdot_prev = rb.Qdot;
                 rb.Qdot = 2 * (Q - Q_prev) / h - rb.Qdot;
-                // auto Jinv = compute_Jinv(rb.moment_of_inertia);
-                // Eigen::Matrix3d Tau =
-                //     Q_prev.transpose() * Hat(rb.force.rotation);
+                
                 Eigen::Matrix3d Q_tilde = Q_prev
-                    + h
-                        * (Qdot_prev
-                           + h / 4.0
-                               * (
-                                     // Tau * Jinv +
-                                     rb.Qddot));
-                rb.Qddot = 4 * (Q - Q_tilde) / (h * h); //+ Tau * Jinv;
+                    + h * (Qdot_prev + h / 4.0 * (rb.Qddot));
+                rb.Qddot = 4 * (Q - Q_tilde) / (h * h); 
                 break;
             }
             }
@@ -617,10 +605,6 @@ bool DistanceBarrierRBProblem::take_step(const Eigen::VectorXd& x)
     }
 
     if (do_intersection_check) {
-        // Check for intersections instead of collision along the entire
-        // step. We only guarentee a piecewise collision-free trajectory.
-        // return detect_collisions(poses_t0, poses_q1,
-        // CollisionCheck::EXACT);
         return detect_intersections(poses_q1);
     }
     return false;
