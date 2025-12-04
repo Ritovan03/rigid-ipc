@@ -13,6 +13,9 @@
 #include <Eigen/PardisoSupport>
 #endif
 
+// OpenMP
+#include <omp.h>
+
 // #define USE_GRADIENT_DESCENT
 
 namespace ipc::rigid {
@@ -416,13 +419,26 @@ bool NewtonSolver::line_search(
 
 double norm_Linf(const Eigen::SparseMatrix<double>& M)
 {
-    double norm = 0;
-    for (int k = 0; k < M.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(M, k); it; ++it) {
-            norm = std::max(norm, abs(it.value()));
+    // Parallel compute of max absolute entry using OpenMP.
+    double global_max = 0.0;
+    const int outer = M.outerSize();
+
+    #pragma omp parallel
+    {
+        double local_max = 0.0;
+        #pragma omp for schedule(static)
+        for (int k = 0; k < outer; ++k) {
+            for (Eigen::SparseMatrix<double>::InnerIterator it(M, k); it; ++it) {
+                double v = std::abs(it.value());
+                if (v > local_max) local_max = v;
+            }
+        }
+        #pragma omp critical
+        {
+            if (local_max > global_max) global_max = local_max;
         }
     }
-    return norm;
+    return global_max;
 }
 
 bool NewtonSolver::compute_regularized_direction(
@@ -489,15 +505,6 @@ bool NewtonSolver::compute_direction(
     PROFILE_POINT("NewtonSolver::compute_direction:linear_solve");
     PROFILE_START();
 
-    // Check if the hessian is positive semi-definite.
-    // Eigen::LLT<Eigen::MatrixXd> LLT_H((Eigen::MatrixXd(hessian)));
-    // if (LLT_H.info() == Eigen::NumericalIssue) {
-    //     spdlog::warn(
-    //         "solver={} iter={:d} failure=\"possibly non semi-positive "
-    //         "definite Hessian\"",
-    //         name(), iteration_number);
-    // }
-
     // Solve for the Newton direction (Δx = -H⁻¹∇f).
     // Return true if the solve was successful.
     bool solve_success = false;
@@ -529,11 +536,6 @@ bool NewtonSolver::compute_direction(
     }
 #else
     // Default Eigen sparse solver
-    // if (hessian.rows() <= 1200) { // <= 200 bodies
-    //     Eigen::MatrixXd dense_hessian(hessian);
-    //     direction = dense_hessian.ldlt().solve(-gradient);
-    //     solve_success = true;
-    // } else {
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> linear_solver;
     linear_solver.analyzePattern(hessian);
     linear_solver.factorize(hessian);
@@ -557,7 +559,6 @@ bool NewtonSolver::compute_direction(
             "hessian\" failsafe=\"gradient descent\"",
             name(), iteration_number);
     }
-    // }
 #endif
 
     PROFILE_END();
@@ -612,27 +613,45 @@ double make_matrix_positive_definite(Eigen::SparseMatrix<double>& A)
 {
     // Conservative way of making A PSD by making it diagonally dominant
     // with all positive diagonal entries
-    Eigen::SparseMatrix<double> I(A.rows(), A.rows());
-    I.setIdentity();
-    // Entries along the diagonal of A
-    Eigen::VectorXd diag = Eigen::VectorXd::Zero(A.rows());
-    // Sum of columns per row not including the diagonal entry
-    // (∑_{i≠j}|a_{ij}|)
-    Eigen::VectorXd sum_row = Eigen::VectorXd::Zero(A.rows());
+    const int n = A.rows();
+    Eigen::VectorXd diag = Eigen::VectorXd::Zero(n);
+    Eigen::VectorXd sum_row = Eigen::VectorXd::Zero(n);
 
-    // Loop over elements adding them to the appropriate vector above
-    for (int k = 0; k < A.outerSize(); ++k) {
+    // Parallel iterate over outer columns and accumulate per-row contributions.
+    // We must ensure updates to the shared sum_row are atomic.
+    const int outer = A.outerSize();
+    #pragma omp parallel for schedule(static)
+    for (int k = 0; k < outer; ++k) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(A, k); it; ++it) {
-            if (it.row() == it.col()) { // Diagonal element
-                diag(it.row()) = it.value();
-            } else { // Non-diagonal element
-                sum_row(it.row()) += abs(it.value());
+            int r = it.row();
+            int c = it.col();
+            double val = it.value();
+            if (r == c) {
+                // Diagonal: setting diagonal value. Usually only one writer per diagonal.
+                diag(r) = val;
+            } else {
+                // Off-diagonal: add abs to sum_row[r]. Use atomic add to avoid races.
+                double aval = std::abs(val);
+                #pragma omp atomic
+                sum_row(r) += aval;
             }
         }
     }
-    // Take max to ensure all diagonal elements are dominant
-    double mu = std::max((sum_row - diag).maxCoeff(), 0.0);
-    A += mu * I;
+
+    // Compute mu = max(sum_row - diag, 0)
+    double mu = 0.0;
+    #pragma omp parallel for reduction(max : mu) schedule(static)
+    for (int i = 0; i < n; ++i) {
+        double v = sum_row(i) - diag(i);
+        if (v > mu) mu = v;
+    }
+
+    if (mu > 0) {
+        // A += mu * I
+        Eigen::SparseMatrix<double> I(n, n);
+        I.setIdentity();
+        A += mu * I;
+    }
     return mu;
 }
 
@@ -669,16 +688,34 @@ void sample_search_direction(
             2 * num_samples + 1, -max_step, max_step);
     }
 
-    double fx0 = f_and_gradf(x, grad_fx);
-    for (int i = 0; i < sampling.size(); i++) {
+    // Evaluate the samples in parallel (independent evaluations).
+    struct SampleResult {
+        double step_length;
+        double fx;
+        double grad_inf;
+    };
+    std::vector<SampleResult> results(sampling.size());
+
+    #pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < sampling.size(); ++i) {
         double step_length = sampling(i);
-        double fx = f_and_gradf(x + step_length * dir, grad_fx);
+        Eigen::VectorXd xi = x + step_length * dir;
+        Eigen::VectorXd local_grad(x.size());
+        double fx = f_and_gradf(xi, local_grad);
+        double grad_inf = local_grad.lpNorm<Eigen::Infinity>();
+        results[i] = { step_length, fx, grad_inf };
+    }
+
+    // Emit logs in the main thread to avoid interleaved log output
+    double fx0 = f_and_gradf(x, grad_fx);
+    for (int i = 0; i < (int)results.size(); ++i) {
+        const auto &r = results[i];
         spdlog::log(
-            step_length < 0 ? spdlog::level::debug : spdlog::level::info,
+            r.step_length < 0 ? spdlog::level::debug : spdlog::level::info,
             "method=line_search step_length={:+.1e} obj={:.16g} "
             "(obj_i-obj_0)={:.16g} grad_L∞norm={:g}",
-            step_length, fx, fx - fx0, grad_fx.lpNorm<Eigen::Infinity>());
+            r.step_length, r.fx, r.fx - fx0, r.grad_inf);
     }
 }
 
-} // namespace ipc::rigid
+} 
