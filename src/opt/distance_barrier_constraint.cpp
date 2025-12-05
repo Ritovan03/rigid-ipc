@@ -181,64 +181,53 @@ double DistanceBarrierConstraint::compute_earliest_toi_narrow_phase(
     const size_t num_ee = candidates.ee_candidates.size();
     const size_t num_fv = candidates.fv_candidates.size();
 
-    // Do a parallel loop over all three candidate vectors using OpenMP
-#pragma omp parallel for reduction(min:earliest_toi) schedule(dynamic)
-    for (int i = 0; i < static_cast<int>(candidates.size()); i++) {
-        double toi = std::numeric_limits<double>::infinity();
-        bool are_colliding;
+#pragma omp parallel
+    {
+        double local_min = 1.0;
+        int local_collisions = 0;
 
-        if (i < num_ev) {
-            // PROFILE_START(EV_NARROW_PHASE);
-            are_colliding = edge_vertex_ccd(
-                bodies, poses_t0, poses_t1, candidates.ev_candidates[i],
-                toi, trajectory_type, earliest_toi,
-                minimum_separation_distance);
-            // PROFILE_END(EV_NARROW_PHASE);
-        } else if (i - num_ev < num_ee) {
-            // PROFILE_START(EE_NARROW_PHASE);
-            are_colliding = edge_edge_ccd(
-                bodies, poses_t0, poses_t1,
-                candidates.ee_candidates[i - num_ev], toi,
-                trajectory_type, earliest_toi,
-                minimum_separation_distance);
-            // PROFILE_END(EE_NARROW_PHASE);
-        } else {
-            assert(i - num_ev - num_ee < num_fv);
-            // PROFILE_START(FV_NARROW_PHASE);
-            are_colliding = face_vertex_ccd(
-                bodies, poses_t0, poses_t1,
-                candidates.fv_candidates[i - num_ev - num_ee], toi,
-                trajectory_type, earliest_toi,
-                minimum_separation_distance);
-            // PROFILE_END(FV_NARROW_PHASE);
-        }
+#pragma omp for nowait schedule(dynamic)
+        for (int i = 0; i < static_cast<int>(candidates.size()); i++) {
+            double toi = std::numeric_limits<double>::infinity();
+            bool are_colliding = false;
 
-        if (are_colliding && toi == 0) {
             if (i < num_ev) {
-                spdlog::error("Edge-vertex CCD resulted in toi=0!");
-                save_ccd_candidate(
+                are_colliding = edge_vertex_ccd(
                     bodies, poses_t0, poses_t1,
-                    candidates.ev_candidates[i]);
+                    candidates.ev_candidates[i],
+                    toi, trajectory_type,
+                    local_min,
+                    minimum_separation_distance);
             } else if (i - num_ev < num_ee) {
-                spdlog::error("Edge-edge CCD resulted in toi=0!");
-                save_ccd_candidate(
+                are_colliding = edge_edge_ccd(
                     bodies, poses_t0, poses_t1,
-                    candidates.ee_candidates[i - num_ev]);
+                    candidates.ee_candidates[i - num_ev],
+                    toi, trajectory_type,
+                    local_min,
+                    minimum_separation_distance);
             } else {
-                assert(i - num_ev - num_ee < num_fv);
-                spdlog::error("Face-vertex CCD resulted in toi=0!");
-                save_ccd_candidate(
+                are_colliding = face_vertex_ccd(
                     bodies, poses_t0, poses_t1,
-                    candidates.fv_candidates[i - num_ev - num_ee]);
+                    candidates.fv_candidates[i - num_ev - num_ee],
+                    toi, trajectory_type,
+                    local_min,
+                    minimum_separation_distance);
+            }
+
+            if (are_colliding) {
+                local_collisions++;
+                if (toi < local_min) {
+                    local_min = toi;
+                }
             }
         }
 
-        if (are_colliding) {
-            // Thread-safe collision count increment
-#pragma omp atomic
-            collision_count++;
-            
-            // Note: earliest_toi is handled by the reduction clause above
+#pragma omp critical
+        {
+            if (local_min < earliest_toi) {
+                earliest_toi = local_min;
+            }
+            collision_count += local_collisions;
         }
     }
 

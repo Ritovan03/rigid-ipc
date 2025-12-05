@@ -1,8 +1,4 @@
 # Rigid IPC
-
-[![Build](https://github.com/ipc-sim/rigid-ipc/actions/workflows/continuous.yml/badge.svg)](https://github.com/ipc-sim/rigid-ipc/actions/workflows/continuous.yml)
-[![License](https://img.shields.io/github/license/ipc-sim/rigid-ipc.svg?color=blue)](https://github.com/ipc-sim/rigid-ipc/blob/main/LICENSE)
-
 <b>Robust, intersection-free, simulations of rigid bodies.</b>
 
 This is the implementation of the SIGGRAPH 2021 paper [Intersection-free Rigid Body Dynamics](https://ipc-sim.github.io/rigid-ipc/).
@@ -42,7 +38,6 @@ The following libraries are used in this project:
 * [IPC Toolkit](https://github.com/ipc-sim/ipc-toolkit): common IPC functions
 * [Eigen](https://eigen.tuxfamily.org/): linear algebra
 * [libigl](https://github.com/libigl/libigl): basic geometry functions, predicates, and viewer
-* [TBB](https://github.com/wjakob/tbb): parallelization
 * [Tight Inclusion CCD](https://github.com/Continuous-Collision-Detection/Tight-Inclusion): correct (conservative) continuous collision detection between triangle meshes in 3D
 * [spdlog](https://github.com/gabime/spdlog): logging information
 * [filib](https://github.com/txstc55/filib): interval arithmetic
