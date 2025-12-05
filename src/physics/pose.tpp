@@ -3,7 +3,6 @@
 #include <typeinfo> // operator typeid
 
 #include <Eigen/Geometry>
-#include <tbb/parallel_for.h>
 
 #include <autodiff/autodiff.h>
 #include <logger.hpp>

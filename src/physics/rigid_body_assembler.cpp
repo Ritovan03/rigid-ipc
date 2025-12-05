@@ -5,7 +5,6 @@
 #include <igl/PI.h>
 #include <ipc/broad_phase/hash_grid.hpp>
 #include <ipc/distance/edge_edge.hpp>
-#include <tbb/parallel_sort.h>
 
 #include <logger.hpp>
 #include <physics/mass.hpp>
@@ -239,25 +238,21 @@ Eigen::MatrixXd RigidBodyAssembler::world_vertices_diff(
     Eigen::MatrixXd V(num_vertices(), dim());
     PROFILE_END(ALLOCATION);
 
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), num_bodies()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            for (size_t rb_i = range.begin(); rb_i != range.end(); ++rb_i) {
-                const RigidBody& rb = m_rbs[rb_i];
+    for (size_t rb_i = 0; rb_i < num_bodies(); ++rb_i) {
+        const RigidBody& rb = m_rbs[rb_i];
 
-                // Index of rigid bodies first vertex in the global vertices
-                long rb_v0_i = m_body_vertex_id[rb_i];
+        // Index of rigid bodies first vertex in the global vertices
+        long rb_v0_i = m_body_vertex_id[rb_i];
 
-                if (compute_hess) {
-                    rb.world_vertices_diff<Diff::DDouble2>(
-                        poses[rb_i], rb_v0_i, V, jac, hess);
-                } else {
-                    assert(compute_jac);
-                    rb.world_vertices_diff<Diff::DDouble1>(
-                        poses[rb_i], rb_v0_i, V, jac, hess);
-                }
-            }
-        });
+        if (compute_hess) {
+            rb.world_vertices_diff<Diff::DDouble2>(
+                poses[rb_i], rb_v0_i, V, jac, hess);
+        } else {
+            assert(compute_jac);
+            rb.world_vertices_diff<Diff::DDouble1>(
+                poses[rb_i], rb_v0_i, V, jac, hess);
+        }
+    }
 
     assert((V - world_vertices(poses)).norm() < 1e-12);
 

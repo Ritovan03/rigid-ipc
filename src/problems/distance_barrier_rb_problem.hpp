@@ -1,7 +1,5 @@
 #pragma once
 
-#include <tbb/concurrent_vector.h>
-
 #include <ipc/collision_constraint.hpp>
 #include <ipc/friction/friction_constraint.hpp>
 

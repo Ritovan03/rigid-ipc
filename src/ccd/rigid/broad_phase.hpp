@@ -1,7 +1,5 @@
 #pragma once
 
-#include <tbb/enumerable_thread_specific.h>
-
 #include <Eigen/Core>
 
 #include <ipc/broad_phase/collision_candidate.hpp>
@@ -85,15 +83,5 @@ void detect_intersection_candidates_rigid_bvh(
     const RigidBodyAssembler& bodies,
     const PosesD& poses,
     std::vector<EdgeFaceCandidate>& ef_candidates);
-
-///////////////////////////////////////////////////////////////////////////////
-// Helper functions
-///////////////////////////////////////////////////////////////////////////////
-
-typedef tbb::enumerable_thread_specific<Candidates>
-    ThreadSpecificCandidates;
-
-void merge_local_candidates(
-    const ThreadSpecificCandidates& storages, Candidates& candidates);
 
 } // namespace ipc::rigid

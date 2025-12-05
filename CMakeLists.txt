@@ -197,10 +197,6 @@ target_link_libraries(ipc_rigid PUBLIC finitediff::finitediff)
 include(boost)
 target_link_libraries(ipc_rigid PUBLIC Boost::boost)
 
-# TBB
-include(onetbb)
-target_link_libraries(ipc_rigid PUBLIC TBB::tbb)
-
 # MSCCD
 include(tight_inclusion)
 target_link_libraries(ipc_rigid PUBLIC tight_inclusion::tight_inclusion)

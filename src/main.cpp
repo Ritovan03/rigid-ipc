@@ -2,8 +2,6 @@
 
 #include <CLI/CLI.hpp>
 
-#include <tbb/global_control.h>
-#include <tbb/info.h>
 #include <thread>
 
 #include <filesystem>
@@ -63,7 +61,7 @@ int main(int argc, char* argv[])
             CLI::CheckedTransformer(
                 SPDLOG_LEVEL_NAMES_TO_LEVELS, CLI::ignore_case));
 
-    int nthreads = tbb::info::default_concurrency();
+    int nthreads = std::thread::hardware_concurrency();
     app.add_option("--nthreads", nthreads, "maximum number of threads to use")
         ->default_val(nthreads);
 
@@ -76,17 +74,16 @@ int main(int argc, char* argv[])
     set_logger_level(loglevel);
 
     if (nthreads <= 0) {
-        nthreads = tbb::info::default_concurrency();
+        nthreads = std::thread::hardware_concurrency();
     }
 
-    if (nthreads > tbb::info::default_concurrency()) {
+    if (nthreads > int(std::thread::hardware_concurrency())) {
         spdlog::warn(
             "Attempting to use more threads than available ({:d} > {:d})!",
-            nthreads, tbb::info::default_concurrency());
+            nthreads, std::thread::hardware_concurrency());
     }
 
-    tbb::global_control thread_limiter(
-        tbb::global_control::max_allowed_parallelism, nthreads);
+    // Note: Serial execution - thread count is informational only
 
     if (with_viewer) {
 #ifdef RIGID_IPC_WITH_OPENGL

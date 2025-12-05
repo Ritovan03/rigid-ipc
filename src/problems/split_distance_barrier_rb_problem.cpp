@@ -1,7 +1,5 @@
 #include "split_distance_barrier_rb_problem.hpp"
 
-#include <tbb/parallel_sort.h>
-
 #include <finitediff.hpp>
 
 #include <constants.hpp>
@@ -88,15 +86,15 @@ void SplitDistanceBarrierRBProblem::update_constraints()
         constraint().construct_collision_set(
             m_assembler, poses_t0, poses_t1, original_impacts);
 
-        tbb::parallel_sort(
+        std::sort(
             original_impacts.ev_impacts.begin(),
             original_impacts.ev_impacts.end(),
             compare_impacts_by_time<EdgeVertexImpact>);
-        tbb::parallel_sort(
+        std::sort(
             original_impacts.ee_impacts.begin(),
             original_impacts.ee_impacts.end(),
             compare_impacts_by_time<EdgeEdgeImpact>);
-        tbb::parallel_sort(
+        std::sort(
             original_impacts.fv_impacts.begin(),
             original_impacts.fv_impacts.end(),
             compare_impacts_by_time<FaceVertexImpact>);

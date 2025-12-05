@@ -1,8 +1,5 @@
 #include "distance_barrier_rb_problem.hpp"
 
-#include <tbb/enumerable_thread_specific.h>
-#include <tbb/parallel_for.h>
-
 #include <ipc/distance/edge_edge.hpp>
 #include <ipc/distance/edge_edge_mollifier.hpp>
 #include <ipc/distance/point_triangle.hpp>
@@ -723,7 +720,7 @@ double DistanceBarrierRBProblem::compute_energy_term(
     if (compute_grad) {
         grad.setZero(x.size());
     }
-    tbb::concurrent_vector<Eigen::Triplet<double>> hess_triplets;
+    std::vector<Eigen::Triplet<double>> hess_triplets;
     if (compute_hess) {
         // Hessian is a block diagonal with (ndof x ndof) blocks
         hess_triplets.reserve(num_bodies() * ndof * ndof);
@@ -732,14 +729,11 @@ double DistanceBarrierRBProblem::compute_energy_term(
     const std::vector<PoseD> poses = this->dofs_to_poses(x);
     assert(poses.size() == num_bodies());
 
-    // tbb::parallel_for(size_t(0), poses.size(), [&](size_t i) {
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), poses.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Activate autodiff with the correct number of variables
-            Diff::activate(ndof);
-
-            for (long i = range.begin(); i != range.end(); ++i) {
+    // Process all poses serially
+    // Activate autodiff with the correct number of variables
+    Diff::activate(ndof);
+    
+    for (size_t i = 0; i < poses.size(); ++i) {
                 const PoseD& pose = poses[i];
                 const RigidBody& body = m_assembler[i];
 
@@ -798,7 +792,7 @@ double DistanceBarrierRBProblem::compute_energy_term(
                     grad.segment(i * ndof, ndof) = gradi;
                 }
             }
-        });
+        }
 
     if (compute_hess) {
         NAMED_PROFILE_POINT(
@@ -1254,11 +1248,9 @@ struct PotentialStorage {
     Eigen::VectorXd gradient;
     std::vector<Eigen::Triplet<double>> hessian_triplets;
 };
-typedef tbb::enumerable_thread_specific<PotentialStorage>
-    ThreadSpecificPotentials;
 
 double merge_derivative_storage(
-    const ThreadSpecificPotentials& potentials,
+    const std::vector<PotentialStorage>& potentials,
     size_t nvars,
     Eigen::VectorXd& grad,
     Eigen::SparseMatrix<double>& hess,
@@ -1333,12 +1325,13 @@ double DistanceBarrierRBProblem::compute_barrier_term(
 
     double dhat = barrier_activation_distance();
 
-    ThreadSpecificPotentials thread_storage(x.size());
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), constraints.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Get references to the local derivative storage
-            auto& local_storage = thread_storage.local();
+    std::vector<PotentialStorage> thread_storage(1);
+    thread_storage[0].gradient.setZero(x.size());
+
+    // Process all constraints serially
+    for (size_t constraint_i = 0; constraint_i < constraints.size(); ++constraint_i) {
+        // Get references to the local derivative storage
+        auto& local_storage = thread_storage[0];
             auto& potential = local_storage.potential;
             auto& local_grad = local_storage.gradient;
             auto& hess_triplets = local_storage.hessian_triplets;
@@ -1497,18 +1490,18 @@ double DistanceBarrierRBProblem::compute_friction_term(
     Eigen::MatrixXd U = V1 - m_assembler.world_vertices(poses_t0);
     PROFILE_END(DISPLACEMENT);
 
-    ThreadSpecificPotentials thread_storage(x.size());
-    tbb::parallel_for(
-        tbb::blocked_range<size_t>(size_t(0), friction_constraints.size()),
-        [&](const tbb::blocked_range<size_t>& range) {
-            // Get references to the local derivative storage
-            auto& local_storage = thread_storage.local();
-            auto& potential = local_storage.potential;
-            auto& local_grad = local_storage.gradient;
-            auto& hess_triplets = local_storage.hessian_triplets;
+    std::vector<PotentialStorage> thread_storage(1);
+    thread_storage[0].gradient.setZero(x.size());
 
-            for (size_t ci = range.begin(); ci != range.end(); ++ci) {
-                size_t local_ci = ci;
+    // Process all friction constraints serially
+    for (size_t ci = 0; ci < friction_constraints.size(); ++ci) {
+        // Get references to the local derivative storage
+        auto& local_storage = thread_storage[0];
+        auto& potential = local_storage.potential;
+        auto& local_grad = local_storage.gradient;
+        auto& hess_triplets = local_storage.hessian_triplets;
+
+        size_t local_ci = ci;
 
                 if (local_ci < friction_constraints.vv_constraints.size()) {
                     potential += compute_friction_potential<

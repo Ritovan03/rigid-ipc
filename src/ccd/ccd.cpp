@@ -2,9 +2,6 @@
 
 #include <mutex>
 
-#include <tbb/parallel_for.h>
-#include <tbb/parallel_for_each.h>
-#include <tbb/parallel_invoke.h>
 
 #include <ipc/ccd/ccd.hpp>
 #include <ipc/friction/closest_point.hpp>

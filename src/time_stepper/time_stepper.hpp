@@ -2,8 +2,6 @@
 
 #include <Eigen/Core>
 
-#include <tbb/parallel_for_each.h>
-
 #include <logger.hpp>
 #include <physics/pose.hpp>
 #include <physics/rigid_body_assembler.hpp>
@@ -92,9 +90,9 @@ protected:
         const double& time_step) const
     {
         assert(bodies.dim() == 2);
-        tbb::parallel_for_each(bodies.m_rbs, [&](RigidBody& body) {
+        for (RigidBody& body : bodies.m_rbs) {
             step2D(body, gravity, time_step);
-        });
+        }
     }
 
     /**
@@ -126,9 +124,9 @@ protected:
         const double& time_step) const
     {
         assert(bodies.dim() == 3);
-        tbb::parallel_for_each(bodies.m_rbs, [&](RigidBody& body) {
+        for (RigidBody& body : bodies.m_rbs) {
             step3D(body, gravity, time_step);
-        });
+        }
     }
 };
 

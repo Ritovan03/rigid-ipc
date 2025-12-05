@@ -8,7 +8,6 @@
 #include <igl/PI.h>
 #include <igl/read_triangle_mesh.h>
 #include <igl/remove_unreferenced.h>
-#include <tbb/parallel_sort.h>
 
 #include <io/read_obj.hpp>
 #include <io/serialize_json.hpp>
@@ -304,7 +303,7 @@ bool read_rb_scene(const nlohmann::json& scene, std::vector<RigidBody>& rbs)
             taken_ids.push_back(rb.group_id);
         }
     }
-    tbb::parallel_sort(taken_ids.begin(), taken_ids.end());
+    std::sort(taken_ids.begin(), taken_ids.end());
     int taken_id_i = 0;
     int id = 0;
     int static_group_id = -1;

@@ -4,8 +4,6 @@
 #include <cmath>
 #include <iostream>
 
-#include <tbb/parallel_invoke.h>
-
 #include <interval/interval.hpp>
 #include <logger.hpp>
 
@@ -130,34 +128,39 @@ void RigidBodyHashGrid::addBodies(
 
     for (int id : body_ids) {
         Eigen::MatrixXd V = bodies[id].world_vertices(poses[id]);
-        tbb::parallel_invoke(
-            [&]() {
-                long v0i = bodies.m_body_vertex_id[id];
-                for (int i = 0; i < V.rows(); i++) {
-                    this->addVertex(
-                        V.row(i), V.row(i), v0i + i, inflation_radius);
-                }
-            },
-            [&]() {
-                const Eigen::MatrixXi& E = bodies[id].edges;
-                long e0i = bodies.m_body_edge_id[id];
-                for (int i = 0; i < E.rows(); i++) {
-                    this->addEdge(
-                        V.row(E(i, 0)), V.row(E(i, 1)), //
-                        V.row(E(i, 0)), V.row(E(i, 1)), //
-                        e0i + i, inflation_radius);
-                }
-            },
-            [&]() {
-                const Eigen::MatrixXi& F = bodies[id].faces;
-                long f0i = bodies.m_body_face_id[id];
-                for (int i = 0; i < F.rows(); i++) {
-                    this->addFace(
-                        V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)), //
-                        V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)), //
-                        f0i + i, inflation_radius);
-                }
-            });
+        
+        // Add vertices
+        {
+            long v0i = bodies.m_body_vertex_id[id];
+            for (int i = 0; i < V.rows(); i++) {
+                this->addVertex(
+                    V.row(i), V.row(i), v0i + i, inflation_radius);
+            }
+        }
+        
+        // Add edges
+        {
+            const Eigen::MatrixXi& E = bodies[id].edges;
+            long e0i = bodies.m_body_edge_id[id];
+            for (int i = 0; i < E.rows(); i++) {
+                this->addEdge(
+                    V.row(E(i, 0)), V.row(E(i, 1)), //
+                    V.row(E(i, 0)), V.row(E(i, 1)), //
+                    e0i + i, inflation_radius);
+            }
+        }
+        
+        // Add faces
+        {
+            const Eigen::MatrixXi& F = bodies[id].faces;
+            long f0i = bodies.m_body_face_id[id];
+            for (int i = 0; i < F.rows(); i++) {
+                this->addFace(
+                    V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)), //
+                    V.row(F(i, 0)), V.row(F(i, 1)), V.row(F(i, 2)), //
+                    f0i + i, inflation_radius);
+            }
+        }
     }
 }
 
@@ -304,43 +307,42 @@ void RigidBodyHashGrid::addBodies(
             && is_vertex_included[bodies.m_faces(fi, 2)];
     };
 
-    tbb::parallel_invoke(
-        // Add all vertices of the bodies
-        [&]() {
-            for (long i = 0; i < vertices.rows(); i++) {
-                if (is_vertex_included[i]) {
-                    this->addElement(vertices_aabb[i], i, this->m_vertexItems);
-                }
+    // Add all vertices of the bodies
+    {
+        for (long i = 0; i < vertices.rows(); i++) {
+            if (is_vertex_included[i]) {
+                this->addElement(vertices_aabb[i], i, this->m_vertexItems);
             }
-        },
+        }
+    }
 
-        // Add all edge of the bodies
-        [&]() {
-            for (long i = 0; i < bodies.m_edges.rows(); i++) {
-                if (is_edge_include(i)) {
-                    this->addElement(
-                        AABB(
-                            vertices_aabb[bodies.m_edges(i, 0)],
-                            vertices_aabb[bodies.m_edges(i, 1)]),
-                        i, this->m_edgeItems);
-                }
+    // Add all edges of the bodies
+    {
+        for (long i = 0; i < bodies.m_edges.rows(); i++) {
+            if (is_edge_include(i)) {
+                this->addElement(
+                    AABB(
+                        vertices_aabb[bodies.m_edges(i, 0)],
+                        vertices_aabb[bodies.m_edges(i, 1)]),
+                    i, this->m_edgeItems);
             }
-        },
+        }
+    }
 
-        // Add all faces of the bodies
-        [&]() {
-            for (long i = 0; i < bodies.m_faces.rows(); i++) {
-                if (is_face_include(i)) {
-                    this->addElement(
+    // Add all faces of the bodies
+    {
+        for (long i = 0; i < bodies.m_faces.rows(); i++) {
+            if (is_face_include(i)) {
+                this->addElement(
+                    AABB(
                         AABB(
-                            AABB(
-                                vertices_aabb[bodies.m_faces(i, 0)],
-                                vertices_aabb[bodies.m_faces(i, 1)]),
-                            vertices_aabb[bodies.m_faces(i, 2)]),
-                        i, this->m_faceItems);
-                }
+                            vertices_aabb[bodies.m_faces(i, 0)],
+                            vertices_aabb[bodies.m_faces(i, 1)]),
+                        vertices_aabb[bodies.m_faces(i, 2)]),
+                    i, this->m_faceItems);
             }
-        });
+        }
+    }
 }
 
 } // namespace ipc::rigid
